@@ -1,0 +1,26 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #0a0e1a; }
+::-webkit-scrollbar-thumb { background: #1e2a42; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #2d3a52; }
+
+/* Card hover */
+a[style]:hover { border-color: #2d3a52 !important; }
+
+/* Mobile */
+@media (max-width: 768px) {
+  aside { display: none !important; }
+  main { padding: 8px !important; }
+  header { position: relative !important; }
+}

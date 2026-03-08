@@ -5,6 +5,7 @@ interface NewsItem {
   id: string; title: string; link: string; description: string; pubDate: string;
   source: string; country: string; topic: string; lang: string;
   importance: 'high' | 'medium' | 'low'; polymarket: boolean; image?: string;
+  region: string; lat: number; lon: number;
 }
 
 interface Filters { topics: string[]; countries: string[]; sources: string[]; }
@@ -45,7 +46,8 @@ export default function Home() {
   const [polymarket, setPolymarket] = useState(false);
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
-  const [viewMode, setViewMode] = useState<'grid' | 'list' | 'ticker'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'list' | 'ticker' | 'globe'>('grid');
+  const [selectedRegion, setSelectedRegion] = useState('');
 
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
 
@@ -59,11 +61,30 @@ export default function Home() {
       if (polymarket) params.set('polymarket', 'true');
       if (search) params.set('q', search);
 
-      const res = await fetch(`/api/news?${params}`);
+      const res = await fetch(`/api/news?${params}`, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!res.ok) {
+        if (res.status === 429) {
+          console.error('Rate limit exceeded. Please try again later.');
+          return;
+        }
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+
       const data = await res.json();
+
+      // Validate response structure
+      if (!data.items || !Array.isArray(data.items)) {
+        throw new Error('Invalid response format');
+      }
+
       setItems(data.items);
-      setFilters(data.filters);
-      setUpdatedAt(data.updatedAt);
+      setFilters(data.filters || { topics: [], countries: [], sources: [] });
+      setUpdatedAt(data.updatedAt || new Date().toISOString());
     } catch (e) {
       console.error('Fetch failed:', e);
     } finally {
@@ -119,6 +140,7 @@ export default function Home() {
             <button style={viewMode === 'grid' ? S.viewBtnActive : S.viewBtn} onClick={() => setViewMode('grid')}>▦</button>
             <button style={viewMode === 'list' ? S.viewBtnActive : S.viewBtn} onClick={() => setViewMode('list')}>☰</button>
             <button style={viewMode === 'ticker' ? S.viewBtnActive : S.viewBtn} onClick={() => setViewMode('ticker')}>▬</button>
+            <button style={viewMode === 'globe' ? S.viewBtnActive : S.viewBtn} onClick={() => setViewMode('globe')} title="NewsFlowGlob">🌍</button>
             <button style={S.refreshBtn} onClick={fetchNews}>↻</button>
           </div>
         </div>
@@ -217,6 +239,8 @@ export default function Home() {
             </div>
           ) : items.length === 0 ? (
             <div style={S.empty}>Keine Nachrichten gefunden. Versuche andere Filter.</div>
+          ) : viewMode === 'globe' ? (
+            <GlobeView items={items} selectedRegion={selectedRegion} onRegionSelect={setSelectedRegion} />
           ) : viewMode === 'grid' ? (
             <div style={S.grid}>
               {items.map(item => <NewsCard key={item.id} item={item} />)}
@@ -281,6 +305,152 @@ function TickerRow({ item }: { item: NewsItem }) {
       <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{item.title}</span>
       <span style={{ color: '#475569', marginLeft: 8, fontSize: 12 }}>{item.source} · {timeAgo(item.pubDate)}</span>
     </a>
+  );
+}
+
+function GlobeView({ items, selectedRegion, onRegionSelect }: { items: NewsItem[]; selectedRegion: string; onRegionSelect: (region: string) => void }) {
+  // Group items by region
+  const regionGroups = items.reduce((acc, item) => {
+    if (!acc[item.region]) acc[item.region] = [];
+    acc[item.region].push(item);
+    return acc;
+  }, {} as Record<string, NewsItem[]>);
+
+  const regions = Object.keys(regionGroups).sort();
+
+  // Region colors
+  const REGION_COLORS: Record<string, string> = {
+    'Europe': '#3b82f6',
+    'North America': '#10b981',
+    'Middle East': '#f59e0b',
+    'Global': '#8b5cf6',
+    'Asia': '#ef4444',
+  };
+
+  const filteredItems = selectedRegion ? items.filter(i => i.region === selectedRegion) : items;
+
+  return (
+    <div style={S.globeContainer}>
+      {/* World Map with Markers */}
+      <div style={S.mapContainer}>
+        <h2 style={S.globeTitle}>🌍 NewsFlowGlob - Nachrichten weltweit</h2>
+
+        {/* Region Filters */}
+        <div style={S.regionFilters}>
+          <button
+            style={!selectedRegion ? S.regionBtnActive : S.regionBtn}
+            onClick={() => onRegionSelect('')}
+          >
+            🌍 Alle Regionen ({items.length})
+          </button>
+          {regions.map(region => (
+            <button
+              key={region}
+              style={{
+                ...(selectedRegion === region ? S.regionBtnActive : S.regionBtn),
+                borderColor: REGION_COLORS[region] || '#64748b',
+              }}
+              onClick={() => onRegionSelect(selectedRegion === region ? '' : region)}
+            >
+              <span style={{ color: REGION_COLORS[region] || '#64748b', fontSize: 16 }}>●</span>
+              {region} ({regionGroups[region].length})
+            </button>
+          ))}
+        </div>
+
+        {/* Simple Map Visualization */}
+        <div style={S.worldMap}>
+          <svg width="100%" height="400" viewBox="0 0 800 400" style={{ background: '#0d1220', borderRadius: 12 }}>
+            {/* Simplified world map background */}
+            <rect width="800" height="400" fill="#0a0e1a" />
+
+            {/* Grid lines */}
+            {[...Array(8)].map((_, i) => (
+              <line key={`v${i}`} x1={i * 100} y1="0" x2={i * 100} y2="400" stroke="#1e2a42" strokeWidth="1" />
+            ))}
+            {[...Array(4)].map((_, i) => (
+              <line key={`h${i}`} x1="0" y1={i * 100} x2="800" y2={i * 100} stroke="#1e2a42" strokeWidth="1" />
+            ))}
+
+            {/* News markers on map */}
+            {filteredItems.slice(0, 50).map((item, idx) => {
+              // Convert lat/lon to SVG coordinates (simplified projection)
+              const x = ((item.lon + 180) / 360) * 800;
+              const y = ((90 - item.lat) / 180) * 400;
+
+              const color = IMPORTANCE_COLORS[item.importance];
+              const size = item.importance === 'high' ? 8 : item.importance === 'medium' ? 6 : 4;
+
+              return (
+                <g key={item.id}>
+                  <circle
+                    cx={x}
+                    cy={y}
+                    r={size}
+                    fill={color}
+                    opacity="0.8"
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <title>{item.title} - {item.source}</title>
+                  </circle>
+                  {item.importance === 'high' && (
+                    <circle
+                      cx={x}
+                      cy={y}
+                      r={size + 4}
+                      fill="none"
+                      stroke={color}
+                      strokeWidth="2"
+                      opacity="0.4"
+                    >
+                      <animate
+                        attributeName="r"
+                        from={size}
+                        to={size + 8}
+                        dur="2s"
+                        repeatCount="indefinite"
+                      />
+                      <animate
+                        attributeName="opacity"
+                        from="0.6"
+                        to="0"
+                        dur="2s"
+                        repeatCount="indefinite"
+                      />
+                    </circle>
+                  )}
+                </g>
+              );
+            })}
+          </svg>
+
+          {/* Legend */}
+          <div style={S.mapLegend}>
+            <div style={S.legendItem}>
+              <span style={{ ...S.legendDot, background: '#ef4444' }} /> Breaking News
+            </div>
+            <div style={S.legendItem}>
+              <span style={{ ...S.legendDot, background: '#f59e0b' }} /> Wichtig
+            </div>
+            <div style={S.legendItem}>
+              <span style={{ ...S.legendDot, background: '#64748b' }} /> Normal
+            </div>
+          </div>
+        </div>
+
+        {/* News List by Region */}
+        <div style={S.regionNewsList}>
+          {selectedRegion && (
+            <h3 style={S.regionNewsTitle}>
+              Nachrichten aus {selectedRegion} ({filteredItems.length})
+            </h3>
+          )}
+          <div style={S.list}>
+            {filteredItems.map(item => <NewsRow key={item.id} item={item} />)}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -352,4 +522,18 @@ const S: Record<string, React.CSSProperties> = {
 
   tickerView: { display: 'flex', flexDirection: 'column' as const, gap: 1 },
   tickerRowItem: { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', textDecoration: 'none', color: 'inherit', fontSize: 13, borderBottom: '1px solid #111827' },
+
+  // Globe View Styles
+  globeContainer: { width: '100%', padding: 20 },
+  mapContainer: { maxWidth: 1200, margin: '0 auto' },
+  globeTitle: { fontSize: 24, fontWeight: 800, marginBottom: 20, color: '#e2e8f0', textAlign: 'center' as const },
+  regionFilters: { display: 'flex', flexWrap: 'wrap' as const, gap: 8, marginBottom: 20, justifyContent: 'center' },
+  regionBtn: { background: '#111827', border: '2px solid #1e2a42', color: '#94a3b8', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 6, transition: 'all 0.2s' },
+  regionBtnActive: { background: 'rgba(239,68,68,0.08)', border: '2px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 700, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 6 },
+  worldMap: { background: '#0d1220', borderRadius: 12, padding: 16, marginBottom: 20, border: '1px solid #1e2a42' },
+  mapLegend: { display: 'flex', gap: 16, marginTop: 12, justifyContent: 'center', padding: 8 },
+  legendItem: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#94a3b8' },
+  legendDot: { width: 8, height: 8, borderRadius: '50%' },
+  regionNewsList: { marginTop: 20 },
+  regionNewsTitle: { fontSize: 18, fontWeight: 700, marginBottom: 12, color: '#e2e8f0', paddingBottom: 8, borderBottom: '1px solid #1e2a42' },
 };
